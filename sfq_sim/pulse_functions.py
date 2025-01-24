@@ -10,7 +10,7 @@ from tqdm import tqdm
 def normal_dist(x,x0,sigma):
     return 1/(sigma*np.sqrt(2*np.pi))*np.exp(-(x-x0)**2/(2*sigma**2))
 
-def normal_sfq(n,omega_10,pulse_width = 2e-12,t_delay = 1e-11,n_steps = 3e5):
+def normal_sfq(n,omega_10,pulse_width = 2e-12,t_delay = 0,n_steps = 3e5):
     '''
     normal_sfq function.
 
@@ -178,6 +178,7 @@ def sfq_qutrit_Ry(n, anharm, omega_10,initial_state,theta,pulse_width = 2e-12,t_
     results = {"fids": fids, "P2": P2, "P1": P1, "P0": P0, "sx": sx, "sy": sy, "sz": sz, "psi": psi, "t": t, "pulse": pulse}
     #in this case fidelities is P1, for consistancy output 4 arrays with first one being fids
     return results
+
 
 def sfq_qutrit_Ry_anharm_sweep(n, anharms, omega_10,initial_state,theta,pulse_width = 2e-12 ,t_delay = 1e-11, n_steps = 3e5, progress = False, int_jit = 0):
 

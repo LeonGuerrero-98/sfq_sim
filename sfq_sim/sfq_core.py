@@ -1,5 +1,6 @@
 import numpy as np
-import matplotlib.pyplot as plt 
+import matplotlib.pyplot as plt
+from qutip import Bloch 
 from .pulse_functions import *
 from tqdm import tqdm
 import multiprocessing
@@ -46,19 +47,19 @@ class create_qutrit:
         else:
             raise ValueError("Initial state must be a 2D or 3D Qobj")
                     
-    def apply_qutrit_sfq_Rygate(self, n:int, theta:float, pulse_width:float = 2e-12, t_delay:float = 1e-11, steps:float = 3e5, progress:bool = True, int_jitter:float = 0):
+    def apply_qutrit_sfq_Rygate(self, n:int, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0):
  
         self.n = n
         self.theta = theta
         self.pulse_width = pulse_width
-        self.t_delay = t_delay
+        self.t_delay = t_delay + 1/(self.qfreq*1e9) # ensures pulses start in time with qubit oscillation
         self.steps = steps
         self.progress = progress
         self.int_jitter = int_jitter
 
         # Ensure anharmonicity is a sensible value
-        if self.anharm < -20 or self.anharm > 20:
-            raise ValueError("Anharmonicity must be a sensible value >-20 or <20")
+        if self.anharm < 0 or self.anharm > 20:
+            raise ValueError("Anharmonicity must be a sensible value >0 or <20")
 
 
         self.result = sfq_qutrit_Ry(
@@ -67,6 +68,7 @@ class create_qutrit:
         self.qutrit_state = self.result["psi"][-1]
         self.t = self.result["t"]
         self.pulse = self.result["pulse"]
+
     
 
     def plot_probs(self, include_pulse=False):
@@ -76,13 +78,13 @@ class create_qutrit:
         if include_pulse == False:
             fig, ax = plt.subplots()
 
-            ax.plot(self.t, self.result["P0"], label=r"$P_{|0\rangle}$")
-            ax.plot(self.t, self.result["P1"], label=r"$P_{|1\rangle}$")
-            ax.plot(self.t, self.result["P2"], label=r"$P_{|2\rangle}$")
+            ax.plot(self.t*1e9, self.result["P0"], label=r"$P_{|0\rangle}$")
+            ax.plot(self.t*1e9, self.result["P1"], label=r"$P_{|1\rangle}$")
+            ax.plot(self.t*1e9, self.result["P2"], label=r"$P_{|2\rangle}$")
 
             ax.grid(True)
             ax.legend(loc="best")
-            ax.set_xlabel("Time ($s$)")
+            ax.set_xlabel("Time (ns)")
             ax.set_ylabel("State Probabilities")
             
         if include_pulse == True:
@@ -90,22 +92,43 @@ class create_qutrit:
             fig, (ax1, ax2) = plt.subplots(2, 1, sharex=True, gridspec_kw={'height_ratios': [2, 1]})
 
             # First subplot: probabilities
-            ax1.plot(self.t, self.result["P0"], label=r"$P_{|0\rangle}$")
-            ax1.plot(self.t, self.result["P1"], label=r"$P_{|1\rangle}$")
-            ax1.plot(self.t, self.result["P2"], label=r"$P_{|2\rangle}$")
+            ax1.plot(self.t*1e9, self.result["P0"], label=r"$P_{|0\rangle}$")
+            ax1.plot(self.t*1e9, self.result["P1"], label=r"$P_{|1\rangle}$")
+            ax1.plot(self.t*1e9, self.result["P2"], label=r"$P_{|2\rangle}$")
 
             ax1.grid(True)
             ax1.legend(loc="best")
             ax1.set_ylabel("State Probabilities")
 
             # Second subplot: pulse
-            ax2.plot(self.t, self.pulse, label="Pulse", color="orange")
+            ax2.plot(self.t*1e9, self.pulse, label="Pulse", color="orange")
             ax2.grid(True)
-            ax2.set_xlabel("Time ($s$)")
+            ax2.set_xlabel("Time (ns)")
             ax2.set_ylabel(r"$V_{SFQ}$ (V)")
 
         return fig
     
+    def plot_bloch(self, n_points:int = 1000):
+
+        sx = self.result["sx"]
+        sy = self.result["sy"]
+        sz = self.result["sz"]
+
+        #reduce number of points to plot
+
+        sx = sx[::int(len(sx)/n_points)]
+        sy = sy[::int(len(sy)/n_points)]
+        sz = sz[::int(len(sz)/n_points)]
+
+        b = Bloch() 
+        b.add_points([sx, sy, sz],meth='l')
+
+        b.xlabel = ['X', '']
+        b.ylabel = ['Y', '']
+        b.zlabel = ['Z', '']
+
+        b.show()
+        
 
 
     def anharm_sweep(self, anharms: tuple,n: int, theta: float,initial_state: Qobj = basis(3,0), multicore: int = 0, sweep_progress: bool = False):
