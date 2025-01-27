@@ -6,3 +6,9 @@
 
 1. Navigate to folder containing `sfq_sim`
 2. Run `pip install .` in the terminal
+
+## To do:
+
+ - [] Add tests
+ - [] Add jitter example to `example_usage` notebook
+ - [] Add save file example to `example_usage` notebook
