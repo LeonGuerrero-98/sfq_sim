@@ -19,7 +19,7 @@ class create_qutrit:
         self.qfreq = qfreq*1e9*2*np.pi
         self.anharm = anharm
         self.pulse_width = 2e-12
-        self.t_delay = 1e-11
+        self.t_delay = 0
         self.steps = 3e5
         self.progress = True
         self.int_jitter = 0
@@ -69,8 +69,37 @@ class create_qutrit:
         self.t = self.result["t"]
         self.pulse = self.result["pulse"]
 
-    
+    def apply_qutrit_sfq_gate_RF(self, n:int, gate:str, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0, RF_freq:float = 0, RF_amp:float = 0, RF_phase:float = 0):
+        #gate must be x or y or X or Y
+        if gate not in ["x","y","X","Y"]:
+            raise ValueError("Gate must be x or y or X or Y")
+        if gate == "x" or "X" and theta > 0:
+            self.t_delay = t_delay + (0.5*np.pi)/self.qfreq
+            self.gate = "X"
+        elif gate == "y" or "Y" and theta > 0:
+            self.t_delay = t_delay
+            self.gate = "Y"
+        elif gate == "x" or "X" and theta < 0:
+            self.t_delay = t_delay + (1.5*np.pi)/self.qfreq
+            self.gate = "X"
+        elif gate == "y" or "Y" and theta < 0:
+            self.t_delay = t_delay + np.pi/self.qfreq
+            self.gate = "Y"
 
+        self.n = n
+        self.theta = theta
+        self.pulse_width = pulse_width
+        self.steps = steps
+        self.progress = progress
+        self.int_jitter = int_jitter
+
+        self.result = sfq_qutrit_RF(
+            self.n, self.anharm, self.qfreq,self.qutrit_state,self.theta,gate,self.pulse_width,self.t_delay, n_steps=self.steps, progress=self.progress, int_jit = self.int_jitter)
+ 
+        self.qutrit_state = self.result["psi"][-1]
+        self.t = self.result["t"]
+        self.pulse = self.result["pulse"]
+    
     def plot_probs(self, include_pulse=False):
         #verify there is sweep data to plot
         if not hasattr(self, 'result'):
@@ -129,8 +158,6 @@ class create_qutrit:
 
         b.show()
         
-
-
     def anharm_sweep(self, anharms: tuple,n: int, theta: float,initial_state: Qobj = basis(3,0), multicore: int = 0, sweep_progress: bool = False):
         self.anharms = anharms
         self.n = n
@@ -193,8 +220,6 @@ class create_qutrit:
         self.P1_err = results["P1_err"]
         self.P0_err = results["P0_err"]
 
-
-
     def plot_anharm_sweep_results(self,log:bool = False,infidelity:bool = False):
         if not hasattr(self, 'fids'):
             raise ValueError("No sweep data to plot. Run anharm_sweep() first.")
@@ -229,7 +254,6 @@ class create_qutrit:
         ax.set_ylabel("Fidelity")
 
         return fig
-
 
     def save_anharm_sweep_results(self,save_folder:str = None):
         #verify there is sweep data to save

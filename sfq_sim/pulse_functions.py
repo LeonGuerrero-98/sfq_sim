@@ -30,10 +30,10 @@ def normal_sfq(n,omega_10,pulse_width = 2e-12,t_delay = 0,n_steps = 3e5):
     '''
     T_sep = 2*np.pi/omega_10
     n_steps = int(n_steps)
-    t = np.linspace(0,t_delay + pulse_width/2 + n*T_sep,n_steps)
-    pulse = Phi_0*normal_dist(t,t_delay + pulse_width/2,pulse_width)
+    t = np.linspace(-pulse_width*5,t_delay + n*T_sep,n_steps)
+    pulse = Phi_0*normal_dist(t,t_delay,pulse_width)
     for i in range(n-1):
-        pulse = np.add(pulse,Phi_0*normal_dist(t,t_delay + (pulse_width/2) + (i+1)*T_sep,pulse_width))
+        pulse = np.add(pulse,Phi_0*normal_dist(t,-5*pulse_width + t_delay + (i+1)*T_sep,pulse_width))
     return t,pulse
 
 def jitter_sfq(n,omega_10,noise_sigma,pulse_width = 2e-12,t_delay = 1e-11,n_steps = 3e5):
@@ -99,6 +99,12 @@ def Ry_3d(theta):
     return Qobj(np.array([[np.cos(theta/2), -np.sin(theta/2), 0],
                           [np.sin(theta/2), np.cos(theta/2), 0],
                           [0, 0, 1]]))
+
+def Rx_3d(theta):
+    return Qobj(np.array([[np.cos(theta/2), -1j*np.sin(theta/2), 0],
+                          [-1j*np.sin(theta/2), np.cos(theta/2), 0],
+                          [0, 0, 1]]))
+
 
 def sfq_qutrit_Ry(n, anharm, omega_10,initial_state,theta,pulse_width = 2e-12,t_delay = 1e-11, n_steps = 3e5, progress = True, int_jit = 0, store_final_only = False):
     #calculate omega20 and delta theta based on input values
@@ -355,3 +361,90 @@ def compute_fid_Ry(params):
     n, initial_state, theta ,pulse_width, i, qfreq, t_delay, steps = params
     return sfq_qutrit_Ry(n, i, qfreq,initial_state,theta, pulse_width, t_delay, steps, False, int_jit=0, store_final_only=True)
 
+
+
+def sfq_qutrit_RF(n, anharm, omega_10,initial_state,theta,gate,pulse_width = 2e-12,t_delay = 0, n_steps = 3e5, progress = True, int_jit = 0, store_final_only = False):
+    #calculate omega20 and delta theta based on input values
+    delta_theta = theta / n 
+    if int_jit != 0:
+        t,pulse = jitter_sfq_int(n,omega_10,int_jit,pulse_width,t_delay,n_steps)
+    else:
+        t,pulse = normal_sfq(n,omega_10,pulse_width,t_delay,n_steps) # Generating pulse signal
+    pulse_func = sp.interp1d(t,pulse,fill_value = "extrapolate") # Interpolating pulse function
+
+    def H_sfq_rot_frame(t):
+        Sy = 1j*(create(3) - destroy(3))
+        Sx = -1*(create(3) + destroy(3))
+
+        H = (np.cos(omega_10*t)*Sy + np.sin(omega_10*t)*Sx)*pulse_func(t)
+        return H
+
+    #if initial state is 2d convert to 3d
+    if initial_state.shape == (2,1):
+        psi0 = Qobj(np.array([psi0.full()[0], psi0.full()[1], [0]]))
+    elif initial_state.shape == (3,1):
+        psi0 = initial_state
+    else:
+        raise ValueError("Initial state must be a 2D or 3D Qobj")
+    
+    # target final state is Ry(pi/2) |psi0>
+    if gate == "X":
+        target_state = Rx_3d(theta)*psi0
+    if gate == "Y":
+        target_state = Ry_3d(theta)*psi0
+    target_state_op = target_state*target_state.dag()
+
+    state2 = (basis(3,2)) # Define |2> state
+    state2_op = state2*state2.dag() # Define |2><2| operator
+
+    state1 = (basis(3,1)) # Define |1> state
+    state1_op = state1*state1.dag() # Define |1><1| operator
+
+    state0 = (basis(3,0)) # Define |0> state
+    state0_op = state0*state0.dag() # Define |0><0| operator
+
+    sigmax3d = Qobj(np.array([np.append(sigmax().full()[0], [0]),
+                            np.append(sigmax().full()[1], [0]),
+                            [0, 0, 1]]))
+    sigmay3d = Qobj(np.array([np.append(sigmay().full()[0], [0]),
+                            np.append(sigmay().full()[1], [0]),
+                            [0, 0, 1]]))
+    sigmaz3d = Qobj(np.array([np.append(sigmaz().full()[0], [0]),
+                            np.append(sigmaz().full()[1], [0]),
+                            [0, 0, 1]]))
+
+    b = delta_theta/(2*Phi_0) # Matrix for free Hamiltonian
+    H0 = Qobj(np.array([[0,0,0],[0,0,0],[0,0,anharm*omega_10]]))
+
+    def oper(t):
+        return H0 + b*H_sfq_rot_frame(t) # Full time-dependent Hamiltoian. SFQ Element multiplied by pulse function
+
+    H_t = QobjEvo(oper) # Convert Hamiltonian to QobjEvo object for time-dependent evolution
+
+     # Solve for coefficients of each level. Max step must be < 1/2 pulse width, otherwise will lead to incorrect solution
+    if store_final_only == False:
+        result = sesolve(H_t, psi0, t, e_ops=[target_state_op, state2_op, state1_op, state0_op, sigmax3d,sigmay3d,sigmaz3d], options={"max_step": pulse_width/3, "progress_bar": progress, "store_states": True})
+        fids = result.expect[0] 
+        P2 = result.expect[1]
+        P1 = result.expect[2]
+        P0 = result.expect[3]
+        sx = result.expect[4]
+        sy = result.expect[5]
+        sz = result.expect[6]
+        psi = result.states
+    else:
+        result = sesolve(H_t, psi0, t, e_ops=[target_state_op, state2_op, state1_op, state0_op, sigmax3d,sigmay3d,sigmaz3d], options={"max_step": pulse_width/3, "progress_bar": progress, "store_final_state": True})
+        fids = result.expect[0][-1] 
+        P2 = result.expect[1][-1]
+        P1 = result.expect[2][-1]
+        P0 = result.expect[3][-1]
+        sx = result.expect[4][-1]
+        sy = result.expect[5][-1]
+        sz = result.expect[6][-1]
+        psi = result.states
+        t = None
+        pulse = None
+    #create a dictionary to store the results
+    results = {"fids": fids, "P2": P2, "P1": P1, "P0": P0, "sx": sx, "sy": sy, "sz": sz, "psi": psi, "t": t, "pulse": pulse}
+    #in this case fidelities is P1, for consistancy output 4 arrays with first one being fids
+    return results
