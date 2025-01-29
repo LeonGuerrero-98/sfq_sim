@@ -165,60 +165,58 @@ class create_qutrit:
         self.set_qutrit_state(initial_state)
 
 
+ 
         if multicore == 0:
-            # Sequential sweep without multiprocessing
             results = sfq_qutrit_Ry_anharm_sweep(
-                self.n, anharms, self.qfreq,self.qutrit_state,self.theta,self.pulse_width,self.t_delay, self.steps, sweep_progress, int_jit=0
+                self.n, anharms, self.qfreq, self.qutrit_state, self.theta, self.pulse_width, self.t_delay, self.steps, sweep_progress, int_jit=0
             )
         else:
             with multiprocessing.Pool(processes=multicore) as pool:
-                # Wrap in tqdm to show progress
-                params = [(self.n, self.qutrit_state,self.theta,self.pulse_width, i, self.qfreq, self.t_delay, self.steps) for i in anharms]
-                results_list = list(tqdm(pool.imap(compute_fid_Ry, params), total=len(anharms)))
-            # Combine results from multiprocessing
-            results = {
-                "fids": [],
-                "P2": [],
-                "P1": [],
-                "P0": [],
-                "psi_f": []
-            }
-            for res in results_list:
-                results["fids"].append(res["fids"])
-                results["P2"].append(res["P2"])
-                results["P1"].append(res["P1"])
-                results["P0"].append(res["P0"])
-                results["psi_f"].append(res["psi"])
-        # Unpack results
-        self.fids = results["fids"]
-        self.P2_f = results["P2"]
-        self.P1_f = results["P1"]
-        self.P0_f = results["P0"]
-        self.psi_f = results["psi_f"]
+                params = [(self.n, self.qutrit_state, self.theta, self.pulse_width, i, self.qfreq, self.t_delay, self.steps) for i in anharms]
+                results_list = list(tqdm(pool.imap(compute_fid_Ry_anharm, params), total=len(anharms)))
+            results = {key: [res[key] for res in results_list] for key in ["fids", "P2", "P1", "P0", "psi"]}
 
-    def jitter_sweep(self, jitter_sigmas, n:int ,theta:float, initial_state:Qobj = basis(3,0) ,multicore: int = 0, sweep_progress: bool = False, averaging: int = 1):
+        self.fids, self.P2_f, self.P1_f, self.P0_f, self.psi_f = results["fids"], results["P2"], results["P1"], results["P0"], results["psi"]
+
+    def jitter_sweep(self, jitter_sigmas, n:int ,theta:float, initial_state:Qobj = basis(3,0) ,multicore: int = 0, sweep_progress: bool = True, averaging: int = 1):
         self.jitter_sigmas = jitter_sigmas
         self.theta = theta
         self.n = n
         self.set_qutrit_state(initial_state)
+
         if multicore == 0:
-            results = sfq_qutrit_Ry_jitter_sweep(self.n, self.anharm,self.qfreq, jitter_sigmas,averaging,
-                                                                                                self.pulse_width, self.t_delay, self.steps, sweep_progress)
+            results = sfq_qutrit_Ry_jitter_sweep(self.n, self.anharm,self.qfreq, self.qutrit_state,self.theta,self.jitter_sigmas,averaging,
+                                                                                                                                                                                    self.pulse_width, self.t_delay, self.steps, progress = sweep_progress)
+            
+            self.fids_mean = results["fids_mean"]
+            self.P2_mean = results["P2_mean"]
+            self.P1_mean = results["P1_mean"]
+            self.P0_mean = results["P0_mean"]
+            self.fids_err = results["fids_err"]
+            self.P2_err = results["P2_err"]
+            self.P1_err = results["P1_err"]
+            self.P0_err = results["P0_err"]
+
         else:
-            def compute_fid(i):
-                return sfq_qutrit_Ry_jitter_sweep(self.n, self.anharm, self.qfreq,self.qutrit_state,self.theta, i,averaging, self.pulse_width, self.t_delay, self.steps, sweep_progress)
-
             with multiprocessing.Pool(processes=multicore) as pool:
-                results = list(tqdm(pool.imap(compute_fid, jitter_sigmas), total=len(jitter_sigmas)))
+                    params = [(self.n,self.anharm,self.qfreq,self.qutrit_state,self.theta,self.pulse_width,self.t_delay,self.steps,sweep_progress,s,True,averaging) for s in jitter_sigmas]
+                    results = list(tqdm(pool.imap(compute_fid_Ry_jitter, params), total=len(jitter_sigmas)))
+            self.fids_mean, self.P2_mean, self.P1_mean, self.P0_mean = [], [], [], []
+            self.fids_err, self.P2_err, self.P1_err, self.P0_err = [], [], [], []
+            for res in results:
+                self.fids_mean.append(res["fids_mean"])
+                self.P2_mean.append(res["P2_mean"])
+                self.P1_mean.append(res["P1_mean"])
+                self.P0_mean.append(res["P0_mean"])
+                self.fids_err.append(res["fids_err"])
+                self.P2_err.append(res["P2_err"])
+                self.P1_err.append(res["P1_err"])
+                self.P0_err.append(res["P0_err"])
+                
 
-        self.fids_mean = results["fids_mean"]
-        self.P2_mean = results["P2_mean"]
-        self.P1_mean = results["P1_mean"]
-        self.P0_mean = results["P0_mean"]
-        self.fids_err = results["fids_err"]
-        self.P2_err = results["P2_err"]
-        self.P1_err = results["P1_err"]
-        self.P0_err = results["P0_err"]
+            
+
+
 
     def plot_anharm_sweep_results(self,log:bool = False,infidelity:bool = False):
         if not hasattr(self, 'fids'):
@@ -231,6 +229,7 @@ class create_qutrit:
             ax.plot(self.anharms, self.fids, label="Fidelity")
         if log:
             ax.set_yscale('log')
+            ax.set_xscale('log')
         ax.grid(True)
         ax.set_xlabel("Anharmonicity")
         ax.set_ylabel("Fidelity")
@@ -243,11 +242,12 @@ class create_qutrit:
         
         fig, ax = plt.subplots()
         if infidelity:
-            ax.errorbar(self.jitter_sigmas, 1-np.array(self.fids_mean), yerr = self.fids_err, label="Infidelity")
+            ax.errorbar(self.jitter_sigmas, 1-np.array(self.fids_mean), yerr = self.fids_err, label="Infidelity", capsize= 2.5, marker = '.',markersize = 1.5)
         else:
-            ax.errorbar(self.jitter_sigmas, self.fids_mean, yerr = self.fids_err, label="Fidelity")
+            ax.errorbar(self.jitter_sigmas, self.fids_mean, yerr = self.fids_err, label="Fidelity", capsize= 2.5, marker = '.',markersize = 1.5)
         if log:
             ax.set_yscale('log')
+            ax.set_xscale('log')
         ax.grid(True)
         ax.legend(loc="best")
         ax.set_xlabel("Jitter Sigma")
@@ -262,21 +262,34 @@ class create_qutrit:
         
         #Generate a filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        q_freq_str = str(round(self.qfreq/1e9),2) + "GHz"
-        filename = f"{self.gate}_sweep_{self.n}_pulses_" + q_freq_str + f"{timestamp}.json"
-
-        #Create a dictionary to save
-        data_dict = {"fids": self.fids, "P2_f": self.P2_f, "P1_f": self.P1_f, "P0_f": self.P0_f, "anharm": self.anharms}
-        
-        #Save the dictionary to a json file
-        if save_folder is None:
-            with open(filename, "w") as f:
-                json.dump(data_dict, f)
+        q_freq_str = f"{round(self.qfreq / (np.pi*1e9), 2)}GHz"
+        if self.theta == np.pi:
+            gate_str = "pi"
+        elif self.theta == np.pi/2:
+            gate_str = "pi_2"
         else:
-            with open(save_folder + filename, "w") as f:
-                json.dump(data_dict, f)
+            gate_str = f"{round(self.theta, 2)}"
+        filename = f"Y" + gate_str + f"_anharm_sweep_{self.n}_pulses_" + q_freq_str + f"_{timestamp}.json"
 
-        print(f"Data saved to {filename}")
+        # Create a dictionary to save, converting ndarrays to lists
+        data_dict = {
+            "fids": self.fids.tolist() if isinstance(self.fids, np.ndarray) else self.fids,
+            "P2_f": self.P2_f.tolist() if isinstance(self.P2_f, np.ndarray) else self.P2_f,
+            "P1_f": self.P1_f.tolist() if isinstance(self.P1_f, np.ndarray) else self.P1_f,
+            "P0_f": self.P0_f.tolist() if isinstance(self.P0_f, np.ndarray) else self.P0_f,
+            "anharm": self.anharms.tolist() if isinstance(self.anharms, np.ndarray) else self.anharms
+        }
+        
+        # Save the dictionary to a json file
+        if save_folder is None:
+            file_path = filename
+        else:
+            file_path = f"{save_folder}/{filename}"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(data_dict, f)
+
+        print(f"Data saved to {file_path}")
 
     def save_jitter_sweep_results(self,save_folder:str = None):
         #verify there is sweep data to save
@@ -285,8 +298,8 @@ class create_qutrit:
         
         #Generate a filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        q_freq_str = str(round(self.qfreq/1e9),2) + "GHz"
-        filename = f"{self.gate}_sweep_{self.n}_pulses_" + q_freq_str + f"{timestamp}.json"
+        q_freq_str = str(round(self.qfreq/(np.pi*1e9)),2) + "GHz"
+        filename = f"{self.gate}_jitter_sweep_{self.n}_pulses_" + q_freq_str + f"_{timestamp}.json"
 
         #Create a dictionary to save
         data_dict = {"jitter_sigmas": self.jitter_sigmas,"fids": self.fids_mean, "fids_err": self.fids_err, "P2_mean": self.P2_mean, "P2_err": self.P2_err, "P1_mean": self.P1_mean, "P1_err": self.P1_err, "P0_mean": self.P0_mean, "P0_err": self.P0_err}
