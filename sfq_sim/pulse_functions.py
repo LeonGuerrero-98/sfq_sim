@@ -195,7 +195,7 @@ def sfq_qutrit_Ry_anharm_sweep(n, anharms, omega_10,initial_state,theta,pulse_wi
     P2 = [] # and probabilities of |2>
     P1 = []
     P0 = []
-    psi_f = []
+    psi = []
 
     if int_jit != 0:
         t,pulse = jitter_sfq_int(n,omega_10,int_jit,pulse_width,t_delay,n_steps)
@@ -210,63 +210,16 @@ def sfq_qutrit_Ry_anharm_sweep(n, anharms, omega_10,initial_state,theta,pulse_wi
         psi0 = initial_state
     else:
         raise ValueError("Initial state must be a 2D or 3D Qobj")
-    
-    # target final state is Ry(pi/2) |psi0>
-    target_state = Ry_3d(theta)*psi0
-    target_state_op = target_state*target_state.dag()
 
-    state2 = (basis(3,2)) # Define |2> state
-    state2_op = state2*state2.dag() # Define |2><2| operator
+    for anharm in tqdm(anharms, desc="Anharmonicity Sweep Progress", leave=not progress):
+        result = sfq_qutrit_Ry(n, anharm, omega_10,initial_state,theta,pulse_width,t_delay,n_steps,progress = False, int_jit=int_jit, store_final_only=True)
+        fids.append(result["fids"])
+        P2.append(result["P2"])
+        P1.append(result["P1"])
+        P0.append(result["P0"])
+        psi.append(result["psi"])
 
-    state1 = (basis(3,1)) # Define |1> state
-    state1_op = state1*state1.dag() # Define |1><1| operator
-
-    state0 = (basis(3,0)) # Define |0> state
-    state0_op = state0*state0.dag() # Define |0><0| operator
-    if progress == True:
-        for anharm in tqdm(anharms, desc="Anharmonicity Sweep Progress"):
-            omega_20 = anharm*omega_10 + (2 * omega_10)
-            b = delta_theta/(2*Phi_0) # Matrix for free Hamiltonian
-            H_sfq = 1j*b*(create(3) - destroy(3)) # SFQ Hamiltonian
-            free_matrix = [0,0,0],[0,omega_10,0],[0,0,omega_20] # Free Hamiltonian Matrix
-            H_free = Qobj(free_matrix) # Free Hamiltonian converted to Qobj
-
-            def oper(t):
-                return H_free + pulse_func(t)*H_sfq # Full time-dependent Hamiltoian. SFQ Element multiplied by pulse function
-
-            H_t = QobjEvo(oper) # Convert Hamiltonian to QobjEvo object for time-dependent evolution
-
-            result = sesolve(H_t, psi0, t, e_ops=[target_state_op, state2_op, state1_op, state0_op], options={"max_step": pulse_width/3, "progress_bar": False, "store_final_state": True}) # Solve for coefficients of each level. Max step must be < 1/2 pulse width, otherwise will lead to incorrect solution
-            #only store final result of evolution
-            fids.append(result.expect[0][-1]) 
-            P2.append(result.expect[1][-1]) 
-            P1.append(result.expect[2][-1])
-            P0.append(result.expect[3][-1])
-            psi_f.append(result.states)
-    else:
-        for anharm in anharms:
-            omega_20 = anharm*omega_10 + (2 * omega_10)
-            b = delta_theta/(2*Phi_0)
-            H_sfq = 1j*b*(create(3) - destroy(3)) # SFQ Hamiltonian
-            free_matrix = [0,0,0],[0,omega_10,0],[0,0,omega_20] # Free Hamiltonian Matrix
-            H_free = Qobj(free_matrix) # Free Hamiltonian converted to Qobj
-
-            def oper(t):
-                return H_free + pulse_func(t)*H_sfq # Full time-dependent Hamiltoian. SFQ Element multiplied by pulse function
-
-            H_t = QobjEvo(oper) # Convert Hamiltonian to QobjEvo object for time-dependent evolution
-
-            result = sesolve(H_t, psi0, t, e_ops=[target_state_op, state2_op, state1_op, state0_op], options={"max_step": pulse_width/3, "progress_bar": False, "store_final_state": True}) # Solve for coefficients of each level. Max step must be < 1/2 pulse width, otherwise will lead to incorrect solution
-            #only store final result of evolution
-            fids.append(result.expect[0][-1]) 
-            P2.append(result.expect[1][-1]) 
-            P1.append(result.expect[2][-1])
-            P0.append(result.expect[3][-1])
-            psi_f.append(result.states)
-
-    #create dictionary to store results
-    results = {"anharm": anharms,"fids": fids, "P2": P2, "P1": P1, "P0": P0, "psi_f": psi_f}
-
+    results = {"anharms": anharms, "fids": fids, "P2": P2, "P1": P1, "P0": P0, "psi": psi}
     return results
 
 def sfq_qutrit_Ry_jitter_sweep(n, anharm, omega_10,initial_state,theta,jitter_sigmas,averaging = 1,pulse_width = 2e-12,t_delay = 1e-11, n_steps = 3e5, progress = True):
@@ -331,32 +284,19 @@ def compute_fid_Ry_anharm(params):
     return sfq_qutrit_Ry(n, i, qfreq,initial_state,theta, pulse_width, t_delay, steps, False, int_jit=0, store_final_only=True)
 
 def compute_fid_Ry_jitter(params):
-    fids_mean,P2_mean,P1_mean,P0_mean = [],[],[],[]
-    fids_err,P2_err,P1_err,P0_err = [],[],[],[]
-    n,anharm,omega_10,initial_state,theta,pulse_width,t_delay,n_steps,progress, sigma, store_final_only, averaging = params
-    fids,P2,P1,P0 = [],[],[],[]
-    for i in range(averaging):
-        
-        results = sfq_qutrit_Ry(n,anharm,omega_10,initial_state,theta,pulse_width,t_delay,n_steps,progress, int_jit=sigma, store_final_only=store_final_only)
+    n, anharm, omega_10, initial_state, theta, pulse_width, t_delay, n_steps, progress, sigma, store_final_only, averaging = params
+    fids, P2, P1, P0 = [], [], [], []
+    for _ in range(averaging):
+        results = sfq_qutrit_Ry(n, anharm, omega_10, initial_state, theta, pulse_width, t_delay, n_steps, progress, int_jit=sigma, store_final_only=store_final_only)
         fids.append(results["fids"])
         P2.append(results["P2"])
         P1.append(results["P1"])
         P0.append(results["P0"])
-
-
-    fids_mean.append(np.mean(fids))
-    P2_mean.append(np.mean(P2))
-    P1_mean.append(np.mean(P1))
-    P0_mean.append(np.mean(P0))
-
-
-    fids_err.append(np.std(fids)/np.sqrt(averaging))
-    P2_err.append(np.std(P2)/np.sqrt(averaging))
-    P1_err.append(np.std(P1)/np.sqrt(averaging))
-    P0_err.append(np.std(P0)/np.sqrt(averaging))
-
-    #create dict with mean and error values
-    result = {"fids_mean": fids_mean, "P2_mean": P2_mean, "P1_mean": P1_mean, "P0_mean": P0_mean, "fids_err": fids_err, "P2_err": P2_err, "P1_err": P1_err, "P0_err": P0_err}
+    result = {
+        "fids_mean": np.mean(fids), "P2_mean": np.mean(P2), "P1_mean": np.mean(P1), "P0_mean": np.mean(P0),
+        "fids_err": np.std(fids) / np.sqrt(averaging), "P2_err": np.std(P2) / np.sqrt(averaging),
+        "P1_err": np.std(P1) / np.sqrt(averaging), "P0_err": np.std(P0) / np.sqrt(averaging)
+    }
     return result
 
 def sfq_qutrit_RF(n, anharm, omega_10,initial_state,theta,gate,pulse_width = 2e-12,t_delay = 0, n_steps = 3e5, progress = True, int_jit = 0, store_final_only = False):

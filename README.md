@@ -9,6 +9,6 @@
 
 ## To do:
 
- - [] Add tests
- - [] Add jitter example to `example_usage` notebook
- - [] Add save file example to `example_usage` notebook
+ - [ ] Add tests
+ - [x] Add jitter example to `example_usage` notebook
+ - [x] Add save file example to `example_usage` notebook

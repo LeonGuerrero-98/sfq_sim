@@ -165,18 +165,18 @@ class create_qutrit:
         self.set_qutrit_state(initial_state)
 
 
+ 
         if multicore == 0:
-            # Sequential sweep without multiprocessing
-            if multicore == 0:
-                results = sfq_qutrit_Ry_anharm_sweep(
-                    self.n, anharms, self.qfreq, self.qutrit_state, self.theta, self.pulse_width, self.t_delay, self.steps, sweep_progress, int_jit=0
-                )
-            else:
-                with multiprocessing.Pool(processes=multicore) as pool:
-                    params = [(self.n, self.qutrit_state, self.theta, self.pulse_width, i, self.qfreq, self.t_delay, self.steps) for i in anharms]
-                    results_list = list(tqdm(pool.imap(compute_fid_Ry_anharm, params), total=len(anharms)))
-                results = {key: [res[key] for res in results_list] for key in ["fids", "P2", "P1", "P0", "psi"]}
-            self.fids, self.P2_f, self.P1_f, self.P0_f, self.psi_f = results["fids"], results["P2"], results["P1"], results["P0"], results["psi"]
+            results = sfq_qutrit_Ry_anharm_sweep(
+                self.n, anharms, self.qfreq, self.qutrit_state, self.theta, self.pulse_width, self.t_delay, self.steps, sweep_progress, int_jit=0
+            )
+        else:
+            with multiprocessing.Pool(processes=multicore) as pool:
+                params = [(self.n, self.qutrit_state, self.theta, self.pulse_width, i, self.qfreq, self.t_delay, self.steps) for i in anharms]
+                results_list = list(tqdm(pool.imap(compute_fid_Ry_anharm, params), total=len(anharms)))
+            results = {key: [res[key] for res in results_list] for key in ["fids", "P2", "P1", "P0", "psi"]}
+
+        self.fids, self.P2_f, self.P1_f, self.P0_f, self.psi_f = results["fids"], results["P2"], results["P1"], results["P0"], results["psi"]
 
     def jitter_sweep(self, jitter_sigmas, n:int ,theta:float, initial_state:Qobj = basis(3,0) ,multicore: int = 0, sweep_progress: bool = True, averaging: int = 1):
         self.jitter_sigmas = jitter_sigmas
@@ -204,8 +204,15 @@ class create_qutrit:
             self.fids_mean, self.P2_mean, self.P1_mean, self.P0_mean = [], [], [], []
             self.fids_err, self.P2_err, self.P1_err, self.P0_err = [], [], [], []
             for res in results:
-                for key in ["fids_mean", "P2_mean", "P1_mean", "P0_mean", "fids_err", "P2_err", "P1_err", "P0_err"]:
-                    getattr(self, key).extend(res[key])
+                self.fids_mean.append(res["fids_mean"])
+                self.P2_mean.append(res["P2_mean"])
+                self.P1_mean.append(res["P1_mean"])
+                self.P0_mean.append(res["P0_mean"])
+                self.fids_err.append(res["fids_err"])
+                self.P2_err.append(res["P2_err"])
+                self.P1_err.append(res["P1_err"])
+                self.P0_err.append(res["P0_err"])
+                
 
             
 
