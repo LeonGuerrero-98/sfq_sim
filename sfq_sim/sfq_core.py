@@ -6,6 +6,7 @@ from tqdm import tqdm
 import multiprocessing
 from datetime import datetime
 import json
+from typing import Union
 
 
 class create_qutrit:
@@ -37,17 +38,54 @@ class create_qutrit:
         if self.qfreq/(1e9*2*np.pi) < 0.01 or self.qfreq/(1e9*2*np.pi) > 8:
             raise ValueError("Qubit frequency (in GHz) must be a sensible value >0.01 or <8")
 
-        
-    def set_qutrit_state(self, state:Qobj):
+    def set_qutrit_state(self, state: Union[Qobj, list]):
+        """
+        Set the state of the qutrit.
+
+        Parameters
+        ----------
+        state : Union[Qobj, list]
+            The initial state of the qutrit. It can be either a Qobj or a list.
+            If the state is a Qobj, it must have a shape of (2, 1) or (3, 1).
+            If the state is a list, it must have a length of 2 or 3.
+
+        Raises
+        ------
+        ValueError
+            If the initial state is not a 2D or 3D Qobj or list.
+        """
         #if initial state is 2d convert to 3d
-        if state.shape == (2,1):
-            self.qutrit_state = Qobj(np.array([state.full()[0], state.full()[1], [0]]))
-        elif state.shape == (3,1):
-            self.qutrit_state = state
-        else:
-            raise ValueError("Initial state must be a 2D or 3D Qobj")
-                    
+        if isinstance(state, Qobj):
+            if state.shape == (2,1):
+                self.qutrit_state = Qobj(np.array([state.full()[0], state.full()[1], [0]]))
+            elif state.shape == (3,1):
+                self.qutrit_state = state
+            else:
+                raise ValueError("Initial state must be a 2D or 3D Qobj")
+        elif isinstance(state, list):
+            if len(state) == 2:
+                self.qutrit_state = Qobj(np.array([state[0], state[1], [0]]))
+            elif len(state) == 3:
+                self.qutrit_stae = Qobj(np.array([state[0], state[1], state[2]]))
+            else:
+                raise ValueError("Initial state must be a 2D or 3D list")
+                              
     def apply_qutrit_sfq_Rygate(self, n:int, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0):
+        """
+        Apply an SFQ (Single Flux Quantum) R_y gate to a qutrit.
+        Parameters:
+        n (int): The number of pulses.
+        theta (float): The rotation angle.
+        pulse_width (float, optional): The width of each pulse in seconds. Default is 2e-12.
+        t_delay (float, optional): The delay time before starting the pulses in seconds. Default is 0.
+        steps (float, optional): The number of simulation steps. Default is 3e5.
+        progress (bool, optional): Whether to show progress during the simulation. Default is True.
+        int_jitter (float, optional): The intrinsic jitter in the system. Default is 0.
+        Raises:
+        ValueError: If the anharmonicity is not within the sensible range (0 < anharm < 20).
+        Returns:
+        None
+        """
  
         self.n = n
         self.theta = theta
@@ -69,7 +107,23 @@ class create_qutrit:
         self.t = self.result["t"]
         self.pulse = self.result["pulse"]
 
-    def apply_qutrit_sfq_gate_RF(self, n:int, gate:str, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0, RF_freq:float = 0, RF_amp:float = 0, RF_phase:float = 0):
+    def apply_qutrit_sfq_gate_RF(self, n:int, gate:str, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0):
+        """
+        Apply a qutrit SFQ gate using RF pulses.
+        Parameters:
+        n (int): The qutrit index.
+        gate (str): The type of gate to apply. Must be 'x', 'y', 'X', or 'Y'.
+        theta (float): The rotation angle for the gate.
+        pulse_width (float, optional): The width of the pulse in seconds. Default is 2e-12.
+        t_delay (float, optional): The delay time before applying the gate. Default is 0.
+        steps (float, optional): The number of steps for the simulation. Default is 3e5.
+        progress (bool, optional): Whether to show progress during the simulation. Default is True.
+        int_jitter (float, optional): The internal jitter for the simulation. Default is 0.
+        Raises:
+        ValueError: If the gate is not one of 'x', 'y', 'X', or 'Y'.
+        Returns:
+        None
+        """
         #gate must be x or y or X or Y
         if gate not in ["x","y","X","Y"]:
             raise ValueError("Gate must be x or y or X or Y")
@@ -101,6 +155,21 @@ class create_qutrit:
         self.pulse = self.result["pulse"]
     
     def plot_probs(self, include_pulse=False):
+        """
+        Plots the state probabilities over time, with an optional pulse plot.
+        Parameters:
+        -----------
+        include_pulse : bool, optional
+            If True, includes the pulse plot in a second subplot. Default is False.
+        Raises:
+        -------
+        ValueError
+            If there is no sweep data to plot. Ensure `apply_qutrit_sfq_gate()` has been run first.
+        Returns:
+        --------
+        matplotlib.figure.Figure
+            The figure object containing the plot(s).
+        """
         #verify there is sweep data to plot
         if not hasattr(self, 'result'):
             raise ValueError("No data to plot. Run apply_qutrit_sfq_gate() first.")
@@ -159,6 +228,27 @@ class create_qutrit:
         b.show()
         
     def anharm_sweep(self, anharms: tuple,n: int, theta: float,initial_state: Qobj = basis(3,0), multicore: int = 0, sweep_progress: bool = False):
+    
+        """
+        Perform an anharmonicity sweep on a qutrit system.
+        Parameters:
+        -----------
+        anharms : tuple
+            A tuple containing the anharmonicity values to sweep over.
+        n : int
+            The number of steps in the sweep.
+        theta : float
+            The rotation angle for the Ry gate.
+        initial_state : Qobj, optional
+            The initial state of the qutrit, default is the ground state (basis(3,0)).
+        multicore : int, optional
+            The number of cores to use for parallel processing. If 0, no parallel processing is used. Default is 0.
+        sweep_progress : bool, optional
+            If True, display a progress bar for the sweep. Default is False.
+        Returns:
+        --------
+        None
+        """
         self.anharms = anharms
         self.n = n
         self.theta = theta
@@ -179,6 +269,29 @@ class create_qutrit:
         self.fids, self.P2_f, self.P1_f, self.P0_f, self.psi_f = results["fids"], results["P2"], results["P1"], results["P0"], results["psi"]
 
     def jitter_sweep(self, jitter_sigmas, n:int ,theta:float, initial_state:Qobj = basis(3,0) ,multicore: int = 0, sweep_progress: bool = True, averaging: int = 1):
+        
+        """
+        Perform a jitter sweep on the qutrit state.
+        Parameters:
+        -----------
+        jitter_sigmas : list
+            List of jitter standard deviation values to sweep over.
+        n : int
+            Number of steps in the sweep.
+        theta : float
+            Rotation angle for the Ry gate.
+        initial_state : Qobj, optional
+            Initial state of the qutrit, default is basis(3, 0).
+        multicore : int, optional
+            Number of cores to use for parallel processing. Default is 0 (no parallel processing).
+        sweep_progress : bool, optional
+            Whether to show progress of the sweep. Default is True.
+        averaging : int, optional
+            Number of times to average the results. Default is 1.
+        Returns:
+        --------
+        None
+        """
         self.jitter_sigmas = jitter_sigmas
         self.theta = theta
         self.n = n
@@ -213,11 +326,6 @@ class create_qutrit:
                 self.P1_err.append(res["P1_err"])
                 self.P0_err.append(res["P0_err"])
                 
-
-            
-
-
-
     def plot_anharm_sweep_results(self,log:bool = False,infidelity:bool = False):
         if not hasattr(self, 'fids'):
             raise ValueError("No sweep data to plot. Run anharm_sweep() first.")
