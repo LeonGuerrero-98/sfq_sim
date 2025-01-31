@@ -4,11 +4,10 @@
 
 ## To install
 
-1. Navigate to folder containing `sfq_sim`
+1. Navigate to folder containing `sfq_sim` in the terminal
 2. Run `pip install .` in the terminal
 
-## To do:
+## To test
+1. Navigate to folder containing `sfq_sim` in the terminal
+2. Run `pytest`
 
- - [ ] Add tests
- - [x] Add jitter example to `example_usage` notebook
- - [x] Add save file example to `example_usage` notebook
