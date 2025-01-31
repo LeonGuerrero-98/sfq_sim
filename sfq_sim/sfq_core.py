@@ -64,11 +64,16 @@ class create_qutrit:
                 raise ValueError("Initial state must be a 2D or 3D Qobj")
         elif isinstance(state, list):
             if len(state) == 2:
-                self.qutrit_state = Qobj(np.array([state[0], state[1], [0]]))
+                qutrit_state = Qobj(np.array([state[0], state[1], 0]))
             elif len(state) == 3:
-                self.qutrit_stae = Qobj(np.array([state[0], state[1], state[2]]))
+                qutrit_state = Qobj(np.array(state))
             else:
                 raise ValueError("Initial state must be a 2D or 3D list")
+            
+            if qutrit_state.norm() != 0:
+                self.qutrit_state = qutrit_state.unit()
+            else:
+                raise ValueError("Initial state must be a non-zero state")
                               
     def apply_qutrit_sfq_Rygate(self, n:int, theta:float, pulse_width:float = 2e-12, t_delay:float = 0, steps:float = 3e5, progress:bool = True, int_jitter:float = 0):
         """
