@@ -9,11 +9,20 @@ setup(
         'scipy',
         'matplotlib',
         'tqdm',
-        'qutip'
+        'qutip >= 5.0'
     ],
     author='Leon M. Guerrero',
     author_email='leonmario.guerrero@gmail.com',
     description='simulating SFQ control of superconducting qubits',
     url='https://github.com/LeonGuerrero-98/sfq_sim', 
-    python_requires='>=3.10'
+    classifiers=[
+        'Intended Audience :: Science/Research',
+        'License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)',
+        'Natural Language :: English',
+        'Operating System :: POSIX :: Linux',
+        'Programming Language :: Python :: 3.10',
+        'Topic :: Scientific/Engineering :: Physics'
+    ],
+    keywords='superconducting quantum circuit simulation',
+    python_requires='>=3.10',
     )

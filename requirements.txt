@@ -1,0 +1,8 @@
+matplotlib==3.10.0
+numpy==2.2.2
+pytest==8.3.4
+qutip==5.0.4
+scipy==1.15.1
+scqubits==4.3
+setuptools==72.1.0
+tqdm==4.66.5
