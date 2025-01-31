@@ -15,5 +15,5 @@ setup(
     author_email='leonmario.guerrero@gmail.com',
     description='simulating SFQ control of superconducting qubits',
     url='https://github.com/LeonGuerrero-98/sfq_sim', 
-    python_requires='>=3.7'
+    python_requires='>=3.10'
     )
