@@ -4,6 +4,8 @@ import scqubits as scq
 import math
 from tqdm import tqdm
 from .fluxonium_finder_functions import *
+import json
+from datetime import datetime
 
 scq.settings.T1_DEFAULT_WARNING=False
 
@@ -18,7 +20,7 @@ class fluxonium_finder:
 
 
     def param_sweep(self, n_steps = 100,EC_range = None, EL_range = None, freq_tol = 0.05, anharm_tol = 0.05, multicore = 0, qfreqs = None):
-        default_EC_range = np.linspace(0.5*self.EJ,2*self.EJ,n_steps)
+        default_EC_range = np.linspace(0.5*self.EJ,2.5*self.EJ,n_steps)
         default_EL_range = np.linspace(0.005*self.EJ,0.5*self.EJ,n_steps)
         if EC_range is None:
             EC_range = default_EC_range
@@ -110,7 +112,7 @@ class fluxonium_finder:
 
         return fig
     
-    def contour_sweep(self, n_steps:int = 100,EC_range = None, EL_range = None, qfreqs = None, anharms = None, plot:str = "both", fill:bool = True, alpha:float = 1, save = False):
+    def contour_sweep(self, n_steps:int = 100,EC_range = None, EL_range = None, qfreqs = None, anharms = None,multicore:int = 0, verbose:bool = True):
         default_EC_range = np.linspace(0.5*self.EJ,2.5*self.EJ,n_steps)
         default_EL_range = np.linspace(0.005*self.EJ,0.5*self.EJ,n_steps)
         if EC_range is None:
@@ -138,28 +140,34 @@ class fluxonium_finder:
         else: 
             inputq = self.qfreq
 
-        if alpha < 0 or alpha > 1:
-            raise ValueError("alpha must be between 0 and 1") 
+        if multicore < 0:
+            raise ValueError("multicore must be >= 0")
+        
+        self.potential_qubits, self.cont_sweep_results = EC_EL_sweep_contour(self.EJ,EC_range,EL_range,inputq,self.target_anharms,multicore,verbose)
 
-        valid_plot_options = {"both", "anharm", "qfreq", "none"}
-        if plot not in valid_plot_options:
-            raise ValueError(f"Invalid plot option: {plot}. Valid options are: {', '.join(valid_plot_options)}")
-
-        self.potential_qubits = EC_EL_sweep_contour(self.EJ,EC_range,EL_range,inputq,self.target_anharms,plot = plot, fill = fill, alpha = alpha, save = save)
-
-    def est_qubit_properties(self):
+    def est_qubit_properties(self, qfreq_tol = 0, anharm_tol = 0,averaging = 3,num_points = 250, Ic_sigma = 0.05,ec_el_tol = None, progress = True, array_var = False, array_junctions = 100):
         if self.potential_qubits is None:
             raise AttributeError("The potential_qubits attribute is not set or initialized.")
         
-        for i in range(len(self.potential_qubits)):
-        # Access qubit properties for each "qubit_{i}"
+        if progress:
+            qubit_iterator = tqdm(range(len(self.potential_qubits)), desc="Processing Qubits")
+        else:
+            qubit_iterator = range(len(self.potential_qubits))
+
+        self.Ic_sigma = Ic_sigma
+
+        for i in qubit_iterator:
+            # Access qubit properties for each "qubit_{i}"
             qubit_data = self.potential_qubits[f"qubit_{i}"]
             
             # Call the function and get the properties using EJ, EC, and EL from the qubit data
-            qfreq, anharm, t1_eff, t2_eff, anharm_std = fluxonium_properties_from_params(
+            qfreq, anharm, t1_eff, t2_eff, anharm_std, anharm_std_err = fluxonium_properties_from_params(
                 qubit_data["EJ"],
                 qubit_data["EC"],
-                qubit_data["EL"]
+                qubit_data["EL"],
+                Ic_sigma=Ic_sigma,
+                averaging=averaging,
+                num_points=num_points     
             )
             
             # Update the dictionary for each qubit with new properties
@@ -168,69 +176,175 @@ class fluxonium_finder:
                 "anharm": anharm,
                 "t1_eff": t1_eff,
                 "t2_eff": t2_eff,
-                "anharm std": anharm_std
+                "anharm std": anharm_std,
+                "anharm std_err": anharm_std_err
             })
+        
+        filtered_pot_qubits = {}
+        # Verify qubit params are close to target
+        if qfreq_tol != 0 and anharm_tol == 0:
+            raise ValueError("Both qfreq_tol and anharm_tol must be set for filtering")
+        elif qfreq_tol == 0 and anharm_tol != 0:
+            raise ValueError("Both qfreq_tol and anharm_tol must be set for filtering")
+        elif qfreq_tol != 0 and anharm_tol != 0:
+            j=0
+            for i in range(len(self.potential_qubits)):
+                qubit_props = self.potential_qubits[f"qubit_{i}"]
+                # Check if qfreq is close to target
+                if self.qfreqs != None:
+                    is_qfreq_close = np.isclose(self.qfreqs, qubit_props["qfreq"], atol=qfreq_tol)
+                else:
+                    is_qfreq_close = np.isclose(self.qfreq, qubit_props["qfreq"], atol=qfreq_tol)
+                if np.any(is_qfreq_close):
+                    # Check if anharm is close to target
+                    is_anharm_close = np.isclose(self.target_anharms, qubit_props["anharm"], atol=anharm_tol)
+                    if np.any(is_anharm_close):
+                        filtered_pot_qubits[f"qubit_{j}"] = {
+                            "EJ": self.EJ,
+                            "EC": qubit_props["EC"],
+                            "EL": qubit_props["EL"],
+                            "qfreq": qubit_props["qfreq"],
+                            "anharm": qubit_props["anharm"],
+                            "t1_eff": qubit_props["t1_eff"],
+                            "t2_eff": qubit_props["t2_eff"],
+                            "anharm std": qubit_props["anharm std"],
+                            "anharm std_err": qubit_props["anharm std_err"]
+                        }
+                        j = j + 1
 
-    def compare_potential_qubits(self, shade_qfreq = False):
-        if self.potential_qubits is None:
-            raise AttributeError("The potential_qubits attribute is not set or initialized.")
-        if self.potential_qubits["qubit_0"]["t1_eff"] == None:
-            raise AttributeError("Make sure there are potential qubits and their properties have been estimated")
-        # Create figure and axis
+            #Check not getting duplicate qubits
+            qubits_key_to_remove = []
+            if ec_el_tol:
+                for i in range(len(filtered_pot_qubits)):
+                    test_against_qubit = filtered_pot_qubits[f"qubit_{i}"]
+                    for j in range(i+1, len(filtered_pot_qubits)):
+                        if np.isclose(test_against_qubit["EC"], filtered_pot_qubits[f"qubit_{j}"]["EC"], ec_el_tol) and np.isclose(test_against_qubit["EL"], filtered_pot_qubits[f"qubit_{j}"]["EL"], ec_el_tol):
+                            qubits_key_to_remove.append(f"qubit_{j}")  # Store the actual key name
 
-        t1 = []
-        t2 = []
-        n_s = []
-        xtix = []
-        qfreqs = []
-        for i in range(len(self.potential_qubits)):
-            t1.append(self.potential_qubits[f"qubit_{i}"]["t1_eff"]/1e6)
-            t2.append(self.potential_qubits[f"qubit_{i}"]["t2_eff"]/1e6)
-            n_s.append(1/self.potential_qubits[f"qubit_{i}"]["anharm std"])
-            qfreqs.append(self.potential_qubits[f"qubit_{i}"]["qfreq"])
-            xtix.append(f"q{i}")
+            # Remove duplicates safely by iterating over the keys in reverse order
+            for key in sorted(qubits_key_to_remove, reverse=True):
+                if key in filtered_pot_qubits:
+                    del filtered_pot_qubits[key]
+            
+            # Changing the keys to new index values
+            new_filtered_pot_qubits = {}
 
-        # Create figure and axis
-        fig, ax1 = plt.subplots()
+            for i, (key, value) in enumerate(filtered_pot_qubits.items()):
+                new_key = f"qubit_{i}" 
+                new_filtered_pot_qubits[new_key] = value
 
-        # Plot the first two datasets (T1 and T2)
-        ax1.plot(xtix,t1, "o--", label=r"$T_1$", color="blue")
-        ax1.plot(xtix,t2, "o--", label=r"$T_2$", color="orange")
-        ax1.set_ylabel("Coherence Times (ms)")
-        ax1.tick_params(axis='y')
+            self.potential_qubits = new_filtered_pot_qubits
+        
+        
 
-        # Create a second y-axis
-        ax2 = ax1.twinx()
-        ax2.plot(xtix,n_s, ".-", label=r"$\sigma_\eta^{-1}$", color="green")
-        ax2.set_ylabel(r"Anharmonicity $\sigma^{-1}$")
-        ax2.tick_params(axis='y')
+    def plot_contour_sweep(self, plot:str = "both", EC_range=None, EL_range=None, fill:bool = True, alpha:float = 1, save=False, latex=False):
+        
+        # Validate the alpha value
+        if alpha < 0 or alpha > 1:
+            raise ValueError("alpha must be between 0 and 1") 
 
-        # Add legends for both axes
-        lines_1, labels_1 = ax1.get_legend_handles_labels()
-        lines_2, labels_2 = ax2.get_legend_handles_labels()
-        ax1.legend(lines_1 + lines_2, labels_1 + labels_2, loc="upper right")
+        valid_plot_options = {"both", "anharm", "qfreq", "none"}
+        if plot not in valid_plot_options:
+            raise ValueError(f"Invalid plot option: {plot}. Valid options are: {', '.join(valid_plot_options)}")
+        
+        # Extract data from self.cont_sweep_results
+        EJ = self.cont_sweep_results["EJ"]
+        EC = self.cont_sweep_results["EC"]
+        EL = self.cont_sweep_results["EL"]
+        anharms = self.cont_sweep_results["anharms"]
+        qfreqs = self.cont_sweep_results["qfreqs"]
+        qfreq_levels = self.cont_sweep_results["qfreq_levels"]
+        anharm_levels = self.cont_sweep_results["anharm_levels"]
+        plt.rcParams.update({'font.size': 16})
+        # Enable or disable LaTeX for matplotlib plots
+        if latex:
+            plt.rcParams['text.usetex'] = True
+            xlabel = r"$E_C \mathrm{ (GHz)}$"
+            ylabel = r"$E_L \mathrm{ (GHz)}$"
+            title = rf"$\mathrm{{Fluxonium\ Qubits;}}\ E_J = {EJ:.1f}\ \mathrm{{GHz}}$"
+            qfreq_label = r"$\mathrm{Qubit\ Frequency\ (GHz)}$"
+            anharm_label = r"$\mathrm{Anharmonicity}$"
 
-        # Shade regions based on qubit frequency if shade_qfreq is True
-        if shade_qfreq and self.qfreqs is not None:
-            for q in self.qfreqs:
-                for i, qf_value in enumerate(qfreqs):  # Use 'qf_value' to avoid overwriting 'qf' list
-                    if 1.05 > qf_value > q * 0.95:  # Adjust condition as needed
-                        ax1.fill_between(
-                            [i - 0.5, i + 0.5],
-                            min(min(t1), min(t2)),
-                            max(max(t1), max(t2)),
-                            color="red",
-                            alpha=0.2,
-                        )
-                        # Add a label only once to avoid duplicate legend entries
-                        #ax1.text(i, max(max(t1), max(t2)), rf"$\omega_q \approx {q}$", ha="center", va="bottom", color="red")
+        else:
+            plt.rcParams['text.usetex'] = False
+            xlabel = r"$E_C$ (GHz)"
+            ylabel = r"$E_L$ (GHz)"
+            title = f"Fluxonium Qubits; $E_J$ = {EJ:.2f} GHz"
+            qfreq_label = "Qubit Frequency (GHz)"
+            anharm_label = "Anharmonicity"
 
-        # Add a title for clarity
-        plt.title(r"Qubits for $E_J$ = " + str(self.EJ) + " GHz")
 
-        # Show the plot
-        plt.tight_layout()  # Adjust layout to avoid overlapping labels
-        return fig
+
+        # Create the contour plot for qubit frequency
+        if plot == "both" or plot == "qfreq":
+            plt.contour(EC, EL, qfreqs, levels=qfreq_levels, colors='black', alpha=0)  # Qubit frequency contours
+            plt.clabel(plt.contour(EC, EL, qfreqs, levels=qfreq_levels, colors='black'), inline=True, fontsize=8, fmt=rf"$\omega_q = %.2f \mathrm{{ GHz}}$")
+            if fill and plot in {"both", "qfreq"}:
+                plt.pcolormesh(EC, EL, qfreqs, shading='auto', cmap='viridis', edgecolor='face', alpha=alpha)
+                plt.colorbar(label=qfreq_label)  # Add a color bar for qubit frequencies
+
+        # Add the anharmonicity contours
+        if plot == "both" or plot == "anharm":
+            plt.contour(EC, EL, anharms, levels=anharm_levels, colors='red', linestyles='dashed', alpha=0)  # Anharmonicity contours
+            plt.clabel(plt.contour(EC, EL, anharms, levels=anharm_levels, colors='red', linestyles='dashed'), inline=True, fontsize=8, fmt=rf"$\eta = %.1f$")
+            if fill and plot == "anharm":
+                plt.pcolormesh(EC, EL, anharms, shading='auto', cmap='viridis', edgecolor='face', alpha=alpha)
+                plt.colorbar(label=anharm_label)  # Add a color bar for anharmonicity
+
+        # Plot potential qubits if present
+        if plot == "both":
+            if len(self.potential_qubits) != 0:
+                for i in range(len(self.potential_qubits)):
+                    plt.scatter(self.potential_qubits[f"qubit_{i}"]["EC"], self.potential_qubits[f"qubit_{i}"]["EL"], color='orange', s=50, zorder=1, label='Potential Qubits')
+
+        # Set axis labels and plot title
+        plt.xlabel(xlabel)
+        plt.ylabel(ylabel)
+        plt.title(title)
+
+        # Set EC and EL range if provided
+        if EC_range:
+            if not isinstance(EC_range, list) or len(EC_range) != 2:
+                raise TypeError("EC_range must be a list of length 2")
+            plt.xlim(EC_range[0], EC_range[1])
+
+        if EL_range:
+            if not isinstance(EL_range, list) or len(EL_range) != 2:
+                raise TypeError("EL_range must be a list of length 2")
+            plt.xlim(EL_range[0], EL_range[1])
+
+        # Handle saving the figure
+        fill_str = "filled" if fill else "no_fill"
+        if save:
+            save_filename = f"EJ_{EJ}_ECEL_sweep_{plot}_" + fill_str + ".png"
+            if isinstance(save, str):
+                plt.savefig(save + f"/EJ_{EJ}_ECEL_sweep_{plot}_" + fill_str + ".png", bbox_inches="tight", dpi=300)
+            elif save is True:
+                plt.savefig(save_filename, bbox_inches="tight", dpi=300)
+            else:
+                raise TypeError("save must be bool or the save path")
+
+        plt.show()
+        plt.rcParams['text.usetex'] = False #turn off latex 
+
+    def save_potential_qubits(self,save_folder:str = None):
+        if not hasattr(self,'potential_qubits'):
+            raise ValueError("No Potential Qubits to save. Run Sweep first.")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"potential_qubits_EJ_{self.EJ}_GHz_{timestamp}.json"
+
+
+        # Save the dictionary to a json file
+        if save_folder is None:
+            file_path = filename
+        else:
+            file_path = f"{save_folder}/{filename}"
+
+        with open(file_path, "w", encoding="utf-8") as f:
+            json.dump(self.potential_qubits, f)
+
+        print(f"Data saved to {file_path}")
+
                 
 
         

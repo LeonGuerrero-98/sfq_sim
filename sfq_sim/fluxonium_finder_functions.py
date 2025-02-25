@@ -90,6 +90,8 @@ def mc_sweep_f(params):
     EJ, qfreq,EC, EL, freq_tol,anharm_tol, target_anharms = params
     return EC_EL(EJ, qfreq,EC, EL, freq_tol,anharm_tol, target_anharms = target_anharms)
 
+
+
 def EC_EL_sweep(EJ, qfreq,EC_range, EL_range, freq_tol = 0.05,anharm_tol = 0.05, target_anharms = [n+0.5 for n in range(10)], multicore = 0):
         results_q = {'EC': [], 'EL': [], 'qfreq': [], 'anharm': []}
         results_a = {'EC': [], 'EL': [], 'qfreq': [], 'anharm': []}
@@ -155,12 +157,26 @@ def get_paths_from_contours(contours):
             paths.append(vertices)
     return paths
 
-def EC_EL_sweep_contour(EJ,EC,EL,qfreq,anharm,plot:str = "both",fill = True,alpha = 0.9,save = False):
+def mc_cont_sweep_f(task):
+    EJ, EC_val, EL_val = task
+    return (qfreq_from_params(EJ, EC_val, EL_val), anharm_from_params(EJ, EC_val, EL_val))
 
-    valid_plot_options = {"both", "anharm", "qfreq", "none"}
-    if plot not in valid_plot_options:
-        raise ValueError(f"Invalid plot option: {plot}. Valid options are: {', '.join(valid_plot_options)}")
-
+def EC_EL_sweep_contour(EJ,EC,EL,qfreq,anharm, multicore:int = 0, verbose:bool = True):
+    
+    #Verification
+    if type(qfreq) == list:
+        qfreq_levels = qfreq
+    elif type(qfreq) == float:
+        qfreq_levels = [qfreq]
+    else:
+        raise TypeError("qfreq must be a list of a float")
+    if type(anharm) == list:
+        anharm_levels = anharm
+    elif type(qfreq) == float:
+        anharm_levels = [anharm]
+    else:
+        raise TypeError("anharm must be a list of a float")
+    
 
 
     n_steps = len(EC)
@@ -169,21 +185,38 @@ def EC_EL_sweep_contour(EJ,EC,EL,qfreq,anharm,plot:str = "both",fill = True,alph
     qfreqs = np.zeros_like(EC)
     anharms = np.zeros_like(EC)
 
-    print("Performing sweep...")
-    for i in tqdm(range(n_steps), desc="Sweep Progress", leave=True):
-        for j in range(n_steps):
-            qfreqs[i, j] = qfreq_from_params(EJ, EC[i, j], EL[i, j])
-            anharms[i, j] = anharm_from_params(EJ, EC[i, j], EL[i, j])
-    print("Sweep Complete")
+    if multicore == 0:
+        if verbose:
+            print("Performing sweep...")
+        for i in tqdm(range(n_steps), desc="Sweep Progress", leave=True,disable = not verbose):
+            for j in range(n_steps):
+                qfreqs[i, j] = qfreq_from_params(EJ, EC[i, j], EL[i, j])
+                anharms[i, j] = anharm_from_params(EJ, EC[i, j], EL[i, j])
+        if verbose:
+            print("Sweep Complete")
 
-    if type(qfreq) == list:
-        qfreq_levels = qfreq
-    elif type(qfreq) == float:
-        qfreq_levels = [qfreq]
     else:
-        raise TypeError("qfreq must be a list of a float")
+        if verbose:
+            print(f"Performing sweep using {multicore} cores...")
 
-    anharm_levels = anharm
+        # Create a list of indices to compute over
+        tasks = [(EJ, EC[i, j], EL[i, j]) for i in range(n_steps) for j in range(n_steps)]
+
+        # Initialize progress bar
+        with tqdm(total=len(tasks), desc="Sweep Progress", disable= not verbose) as pbar:
+            with multiprocessing.Pool(processes=multicore) as pool:  
+                # Use imap_unordered to get results as they complete
+                for idx, result in enumerate(pool.imap(mc_cont_sweep_f, tasks)):
+                    qf, ah = result
+                    i, j = divmod(idx, n_steps)
+                    qfreqs[i, j] = qf
+                    anharms[i, j] = ah
+                    if idx % 100 == 0:
+                        pbar.update(100)
+        if verbose:
+            print("Sweep Complete")
+
+
 
     # Create the contour plot for qubit frequency and anharmonicity
     qfreq_contours = plt.contour(EC, EL, qfreqs, levels=qfreq_levels, colors='black')
@@ -213,75 +246,38 @@ def EC_EL_sweep_contour(EJ,EC,EL,qfreq,anharm,plot:str = "both",fill = True,alph
 
     plt.close()
 
-    if plot != "none":
+    potential_qubits = {}
 
-        # Enable LaTeX in all matplotlib plots
-        #plt.rcParams['text.usetex'] = True
-        # Create the contour plot for qubit frequency
-        if plot == "both" or plot == "qfreq":
-            plt.contour(EC, EL, qfreqs, levels=qfreq_levels, colors='black', alpha =0)  # Qubit frequency contours
-            plt.clabel(plt.contour(EC, EL, qfreqs, levels=qfreq_levels, colors='black'), inline=True, fontsize=8, fmt=rf"$\omega_q$ = %.2f GHz")
-            if fill == True and plot in {"both", "qfreq"}:
-                #plt.contourf(EC, EL, qfreqs, levels=100, cmap='viridis', alpha=alpha)  # Filled qubit frequency contours
-                plt.pcolormesh(EC, EL, qfreqs, shading='auto', cmap='viridis', edgecolor='face',alpha=alpha)
-                # Add a color bar and labels
-                plt.colorbar(label="Qubit Frequency (GHz)")  # Add a color bar for qubit frequencies
-        # Add the anharmonicity contours
-        if plot == "both" or plot == "anharm":
-            plt.contour(EC, EL, anharms, levels=anharm_levels, colors='red', linestyles='dashed',alpha = 0)  # Anharmonicity contours
-            plt.clabel(plt.contour(EC, EL, anharms, levels=anharm_levels, colors='red', linestyles='dashed'), inline=True, fontsize=8, fmt=rf"$\eta$ = %.1f")
-            if fill == True and plot == "anharm":
-                #plt.contourf(EC, EL, anharms, levels = 100, cmap='viridis', linestyles = "dashed")  # Filled qubit frequency contours
-                # Add a color bar and labels
-                plt.pcolormesh(EC, EL, anharms, shading='auto', cmap='viridis', edgecolor='face',alpha=alpha)  # Match edge color to face color
-                plt.colorbar(label="Anharmonicity")  # Add a color bar for qubit frequencies
+    # Loop through the intersection points and store EJ, EC, and EL values in a dictionary
+    for i, point in enumerate(intersection_points):
+        if verbose:
+            print(f"Intersection {i+1}: EC = {point[0]}, EL = {point[1]}")
         
-        # Plot the intersection points as scatter points
-        if plot == "both":
-            for point in intersection_points:
-                plt.scatter(point[0], point[1], color='orange', s=50, zorder=1, label='Intersection')
+        # Assign EJ, EC, and EL values directly to the potential_qubits dictionary with a unique key for each qubit
+        potential_qubits[f"qubit_{i}"] = {
+            "EJ": EJ,
+            "EC": point[0],
+            "EL": point[1]
+        }
 
-        plt.xlabel(r"$E_C$ (GHz)")
-        plt.ylabel(r"$E_L$ (GHz)")
-        plt.title(rf"Fluxonium Qubits; $E_J$ = {EJ} GHz")
+    sweep_results = {"EJ":EJ,"EC":EC,"EL":EL,"anharms":anharms,"qfreqs":qfreqs,"anharm_levels":anharm_levels,"qfreq_levels":qfreq_levels}
 
-        if fill == True:
-            fill_str = "filled"
-        elif fill == False:
-            fill_str = "no_fill"
-        if save != False:
-            if save == True:
-                plt.savefig(f"EJ_{EJ}_ECEL_sweep_{plot}_" + fill_str+ ".png",bbox_inches = "tight",dpi = 300)
-            if type(save) == str:
-                plt.savefig(save + f"\EJ_{EJ}_ECEL_sweep_{plot}_" + fill_str+ ".png",bbox_inches = "tight",dpi = 300)
-            else:
-                raise TypeError("save must be bool or the save path")
+    return potential_qubits, sweep_results
 
-        plt.show()
-        # Initialize potential_qubits as an empty dictionary
-        potential_qubits = {}
 
-        # Loop through the intersection points and store EJ, EC, and EL values in a dictionary
-        for i, point in enumerate(intersection_points):
-            if plot:
-                print(f"Intersection {i+1}: EC = {point[0]}, EL = {point[1]}")
-            
-            # Assign EJ, EC, and EL values directly to the potential_qubits dictionary with a unique key for each qubit
-            potential_qubits[f"qubit_{i}"] = {
-                "EJ": EJ,
-                "EC": point[0],
-                "EL": point[1]
-            }
+    # Initialize potential_qubits as an empty dictionary
 
-    print(str(len(potential_qubits)) + " potential qubits found.")  
-    return potential_qubits
 
-def anharm_variability(EJ,EC,EL,Ic_sigma = 0.05, num_points = 1000):
+def anharm_variability(EJ,EC,EL,Ic_sigma = 0.05, num_points = 1000,array_var = False,array_junctions = 100):
     rand_EJ = np.random.normal(loc = EJ,scale = Ic_sigma*EJ,size = num_points)
+    if array_var == True:
+        rand_EL = np.random.normal(loc = EJ,scale = (Ic_sigma*EJ)/np.sqrt(array_junctions),size = num_points)
     rand_anharms = []
-    for ej in rand_EJ:
+    for i in range(len(rand_EJ)):
+        if array_var == True:
+            EL = rand_EL[i]
         fluxonium = scq.Fluxonium(
-        EJ=ej,
+        EJ=rand_EJ[i],
         EC=EC,
         EL=EL,
         flux=0.5,
@@ -295,7 +291,7 @@ def anharm_variability(EJ,EC,EL,Ic_sigma = 0.05, num_points = 1000):
     anharm_std = np.std(rand_anharms,ddof=1) #ddof = 1 gives sample stdev instead of population stdev
     return anharm_std
 
-def fluxonium_properties_from_params(EJ,EC,EL,Ic_sigma = 0.05):
+def fluxonium_properties_from_params(EJ,EC,EL,Ic_sigma = 0.05,averaging = 3,num_points = 250):
     
     fluxonium = scq.Fluxonium(
         EJ=EJ,
@@ -310,8 +306,12 @@ def fluxonium_properties_from_params(EJ,EC,EL,Ic_sigma = 0.05):
     anharm = (w21 -qfreq)/qfreq
     t1_eff = fluxonium.t1_effective()
     t2_eff = fluxonium.t2_effective()
-    anharm_std = anharm_variability(EJ,EC,EL,Ic_sigma,1000)#how much the anharmonicity changes depering on the variability of JJs
-    return qfreq, anharm,t1_eff, t2_eff, anharm_std
+    anharm_std_list = []
+    for i in range(averaging):
+        anharm_std_list.append(anharm_variability(EJ,EC,EL,Ic_sigma,num_points))
+    anharm_std = np.mean(anharm_std_list)
+    anharm_std_err = np.std(anharm_std_list)/np.sqrt(averaging)
+    return qfreq, anharm,t1_eff, t2_eff, anharm_std, anharm_std_err
 
 
     

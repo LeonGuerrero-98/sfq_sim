@@ -7,7 +7,7 @@ setup(
     install_requires=[
         'numpy',
         'scipy',
-        'matplotlib',
+        'matplotlib <= 3.9',
         'tqdm',
         'qutip >= 5.0'
     ],
