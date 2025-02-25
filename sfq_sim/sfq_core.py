@@ -7,6 +7,9 @@ import multiprocessing
 from datetime import datetime
 import json
 from typing import Union
+from mpl_toolkits.mplot3d import Axes3D
+from matplotlib.animation import FuncAnimation
+from IPython.display import HTML, Video
 
 
 class create_qutrit:
@@ -231,6 +234,63 @@ class create_qutrit:
         b.zlabel = ['Z', '']
 
         b.show()
+
+    def animate_bloch(self, n_points: int = 1000, interval:int = 50, save:str = None):
+        sx = self.result["sx"]
+        sy = self.result["sy"]
+        sz = self.result["sz"]
+
+        # Subsample points to reduce the number of frames
+        sx = sx[::int(len(sx)/n_points)]
+        sy = sy[::int(len(sy)/n_points)]
+        sz = sz[::int(len(sz)/n_points)]
+
+        # Adjust the total number of frames based on the reduced points
+        total_frames = len(sx)
+
+        # Set up the figure, the axis, and the plot element
+        fig = plt.figure()
+        ax = Axes3D(fig, auto_add_to_figure=False)
+        fig.add_axes(ax)
+
+        # Bloch sphere setup
+        b = Bloch(fig=fig, axes=ax)
+        
+        # Initialize the points
+        points = [[], [], []]
+
+        def init():
+            b.clear()
+            b.render()
+            return []
+        progress_bar = tqdm(total=total_frames, desc="Animating", unit="frame")
+        # Update function for each frame in the animation
+        def update(frame):
+            b.clear()
+
+            # Add points one by one for animation
+            points[0].append(sx[frame])
+            points[1].append(sy[frame])
+            points[2].append(sz[frame])
+            
+            b.add_points(points, meth='l')
+
+            # Draw the Bloch sphere
+            b.render()
+            progress_bar.update(1)
+
+            return []
+
+        # Create the animation
+        ani = FuncAnimation(fig, update, frames=total_frames, init_func=init, interval=interval, blit=True)
+        if save:
+            ani.save(save,writer = 'ffmpeg', fps = 30)
+            progress_bar.close()
+            return Video(save)
+        else:
+        # Display animation in Jupyter Notebook
+            progress_bar.close()
+            return HTML(ani.to_jshtml())
         
     def anharm_sweep(self, anharms: tuple,n: int, theta: float,initial_state: Qobj = basis(3,0), multicore: int = 0, sweep_progress: bool = False):
     
