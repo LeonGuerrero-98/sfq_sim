@@ -229,13 +229,10 @@ class create_qutrit:
         b = Bloch() 
         b.add_points([sx, sy, sz],meth='l')
 
-        b.xlabel = ['X', '']
-        b.ylabel = ['Y', '']
-        b.zlabel = ['Z', '']
 
         b.show()
 
-    def animate_bloch(self, n_points: int = 1000, interval:int = 50, save:str = None):
+    def animate_bloch(self, n_points: int = 1000, interval:int = 50, video_length = 30, save:str = None):
         sx = self.result["sx"]
         sy = self.result["sy"]
         sz = self.result["sz"]
@@ -284,7 +281,7 @@ class create_qutrit:
         # Create the animation
         ani = FuncAnimation(fig, update, frames=total_frames, init_func=init, interval=interval, blit=True)
         if save:
-            ani.save(save,writer = 'ffmpeg', fps = 30)
+            ani.save(save,writer = 'ffmpeg', fps = total_frames/video_length)
             progress_bar.close()
             return Video(save)
         else:
