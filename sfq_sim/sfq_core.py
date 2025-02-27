@@ -192,6 +192,8 @@ class create_qutrit:
             ax.legend(loc="best")
             ax.set_xlabel("Time (ns)")
             ax.set_ylabel("State Probabilities")
+
+            return fig, ax
             
         if include_pulse == True:
             # Create a figure with two subplots, stacked vertically
@@ -212,7 +214,7 @@ class create_qutrit:
             ax2.set_xlabel("Time (ns)")
             ax2.set_ylabel(r"$V_{SFQ}$ (V)")
 
-        return fig
+            return fig, ax1, ax2
     
     def plot_bloch(self, n_points:int = 1000):
 
@@ -402,9 +404,12 @@ class create_qutrit:
             ax.set_xscale('log')
         ax.grid(True)
         ax.set_xlabel("Anharmonicity")
-        ax.set_ylabel("Fidelity")
+        if infidelity:
+            ax.set_ylabel("Infidelity")
+        else:
+            ax.set_ylabel("Fidelity")
 
-        return fig
+        return fig, ax
     
     def plot_jitter_sweep_results(self,log:bool = False,infidelity:bool = False):
         if not hasattr(self, 'fids_mean'):
@@ -421,9 +426,12 @@ class create_qutrit:
         ax.grid(True)
         ax.legend(loc="best")
         ax.set_xlabel("Jitter Sigma")
-        ax.set_ylabel("Fidelity")
+        if infidelity:
+            ax.set_ylabel("Infidelity")
+        else:
+            ax.set_ylabel("Fidelity")
 
-        return fig
+        return fig, ax
 
     def save_anharm_sweep_results(self,save_folder:str = None):
         #verify there is sweep data to save
@@ -432,7 +440,7 @@ class create_qutrit:
         
         #Generate a filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        q_freq_str = f"{round(self.qfreq / (np.pi*1e9), 2)}GHz"
+        q_freq_str = f"{round(self.qfreq / (2*np.pi*1e9), 2)}GHz"
         if self.theta == np.pi:
             gate_str = "pi"
         elif self.theta == np.pi/2:
@@ -468,7 +476,7 @@ class create_qutrit:
         
         #Generate a filename with timestamp
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        q_freq_str = str(round(self.qfreq/(np.pi*1e9)),2) + "GHz"
+        q_freq_str = str(round(self.qfreq/(2*np.pi*1e9)),2) + "GHz"
         filename = f"{self.gate}_jitter_sweep_{self.n}_pulses_" + q_freq_str + f"_{timestamp}.json"
 
         #Create a dictionary to save
